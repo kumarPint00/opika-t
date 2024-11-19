@@ -1,0 +1,60 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v2
+        
+      - name: Login to AWS ECR
+        uses: aws-actions/amazon-ecr-login@v1
+        with:
+          registry: ${{ secrets.AWS_REGISTRY_URL }}
+          region: ${{ secrets.AWS_REGION }}
+          
+      - name: Build Docker Image
+        run: |
+          docker build -t ${{ secrets.AWS_REGISTRY_URL }}/frontend-app:${{ github.sha }} .
+          docker push ${{ secrets.AWS_REGISTRY_URL }}/frontend-app:${{ github.sha }}
+
+  test:
+    name: Test Application
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v2
+        
+
+  deploy:
+    name: Deploy to EKS
+    runs-on: ubuntu-latest
+    
+    needs: [build, test]
+
+    steps:
+      - name: Install AWS CLI
+        run: |
+          sudo apt-get update && sudo apt-get install -y awscli
+          
+      - name: Configure AWS Credentials
+        run: |
+          aws configure set aws_access_key_id ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws configure set aws_secret_access_key ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws configure set region ${{ secrets.AWS_REGION }}
+
+      - name: Update Kubernetes Manifests
+        run: |
+          sed -i 's|IMAGE_TAG|${{ github.sha }}|g' kubernetes/deployment.yaml
+
+      - name: Apply Kubernetes Manifests
+        run: |
+          kubectl apply -f kubernetes/
